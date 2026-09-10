@@ -1,0 +1,17 @@
+.git
+node_modules
+.next*
+.npm-cache
+.env
+.env.*
+!.env.example
+data
+test-results
+playwright-report
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*backup*.json
+*.log
+*.tsbuildinfo
