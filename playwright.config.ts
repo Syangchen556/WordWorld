@@ -8,7 +8,7 @@ process.env.WORDWORLD_TEST_SETUP_TOKEN ||=
   randomBytes(32).toString("base64url");
 export default defineConfig({
   testDir: "./tests/browser",
-  timeout: 120000,
+  timeout: 180000,
   workers: 1,
   reporter: "list",
   use: { baseURL: "http://localhost:3100", channel: "msedge", headless: true },

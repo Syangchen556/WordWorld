@@ -3,6 +3,13 @@ import { readFileSync } from "node:fs";
 import wordListPath from "word-list";
 import { score, type Match, type Round, type Mode, type Format } from "./types";
 import type { GameStore } from "./state-store";
+import {
+  createMines,
+  difficulties,
+  minesView,
+  reveal,
+  type Difficulty,
+} from "./minesweeper";
 // Hand-curated everyday answers. Never imported by the browser.
 const answers =
   "ABOVE ACORN ACTOR ADAPT ADORE AFTER AGENT AGILE AGLOW ALBUM ALERT ALIVE ALLOW ALONE AMBER ANGEL APPLE APRIL ARROW ASIDE AUDIO AVOID AWAKE AWARD BAKER BEACH BEAST BEGIN BERRY BIRCH BIRTH BLACK BLADE BLANK BLEND BLINK BLOOM BOARD BOOST BRAIN BRAVE BREAD BREAK BRICK BRIDE BRIEF BRING BROOK BRUSH BUILD CABIN CANDY CARRY CATCH CHAIR CHARM CHASE CHEEK CHESS CHIEF CHIME CHOIR CIVIC CLEAN CLEAR CLIMB CLOCK CLOUD COAST COMET CORAL COUNT COURT COVER CRAFT CRANE CREAM CREEK CRISP CROWN DANCE DELAY DEPTH DREAM DRESS DRIFT DRINK DRIVE EARLY EARTH EIGHT ELBOW EMBER ENJOY ENTER EQUAL EVERY EXTRA FAITH FANCY FEAST FIELD FINAL FIRST FLAME FLASH FLOAT FLOOR FLORA FLOUR FOCUS FORCE FORGE FRESH FRONT FROST FRUIT GIANT GIVEN GLASS GLEAM GLIDE GLOBE GLORY GLOVE GRACE GRAIN GRAPE GRASS GREAT GREEN GROVE GROWN GUESS GUIDE HAPPY HEART HONEY HORSE HOUSE HUMAN HUMOR IMAGE INDEX INNER INPUT IVORY JELLY JEWEL JOINT JOLLY JUICE KAYAK KNIFE KNOCK LABEL LARGE LASER LATER LAUGH LAYER LEARN LEMON LEVEL LIGHT LILAC LIMIT LINEN LIVER LOCAL LODGE LOGIC LOOSE LUCKY LUNAR MAGIC MAJOR MANGO MAPLE MARCH MATCH MAYBE MEDAL MELON MERIT MERRY METAL MIGHT MINOR MODEL MONEY MONTH MOTOR MOUNT MOUSE MOVIE MUSIC NEVER NIGHT NOBLE NORTH NOVEL OCEAN OLIVE ONION OPERA ORBIT ORDER OTHER OTTER OUGHT OUTER PAINT PANEL PAPER PARTY PATCH PEACE PEACH PEARL PENNY PETAL PHONE PHOTO PIANO PIECE PILOT PITCH PIZZA PLACE PLAIN PLANE PLANT PLATE PLAZA PLUCK POINT POLAR POUND POWER PRESS PRICE PRIDE PRIME PRINT PRIZE PROUD PUPPY QUEEN QUEST QUICK QUIET QUILT RADIO RAISE RALLY RANCH RANGE RATIO REACH READY REPLY RHYME RIDGE RIGHT RIVER ROAST ROBIN ROBOT ROCKY ROUND ROUTE ROYAL RURAL SALAD SALSA SANDY SAUCE SCALE SCARF SCENE SCENT SCORE SCOUT SEVEN SHADE SHARE SHARP SHEEP SHEET SHELF SHELL SHINE SHIRT SHORE SHORT SHOUT SIGHT SILLY SINCE SKILL SLEEP SLICE SLIDE SMALL SMART SMILE SMOKE SNAIL SNOWY SOLAR SOLID SOLVE SOUND SOUTH SPACE SPARK SPEAK SPELL SPICE SPIKE SPINE SPOON SPORT SPRAY STACK STAGE STAIR STAND STARE START STEAM STEEL STILL STONE STORE STORM STORY STOVE STRAW STUDY STYLE SUGAR SUNNY SUPER SWEET SWIFT SWING TABLE TASTE TEACH THANK THEIR THEME THERE THICK THING THINK THIRD THORN THREE THROW TIGER TITLE TOAST TODAY TOKEN TOOTH TOPIC TORCH TOTAL TOUCH TOWER TRACE TRACK TRADE TRAIL TRAIN TREAT TREND TRIAL TRIBE TRICK TULIP TWICE TWIST UNDER UNION UNITY UNTIL UPPER URBAN USUAL VALID VALUE VIDEO VISIT VITAL VOICE VOTER WAGON WATER WHEEL WHERE WHICH WHILE WHITE WHOLE WHOSE WIDEN WINDS WOMAN WORLD WORRY WORTH WOULD WRITE YACHT YEARN YOUNG YOUTH ZEBRA".split(
@@ -43,11 +50,15 @@ export class Game {
       this.offlineAt.set(id, this.now());
     }
   }
-  start(mode: Mode, format: Format) {
+  start(
+    mode: Mode,
+    format: Format,
+    difficulty: Difficulty = this.store.room()?.difficulty || "easy",
+  ) {
     this.match = {
       id: randomUUID(),
       mode,
-      format,
+      format: mode === "minesweeper" ? "single" : format,
       start: this.now(),
       end: 0,
       status: "active",
@@ -59,6 +70,10 @@ export class Game {
     this.ready = [];
     this.rematch = [];
     this.newRound();
+    if (mode === "minesweeper") {
+      this.round!.mines = createMines(difficulty);
+      this.persist();
+    }
   }
   newRound() {
     const m = this.match!;
@@ -77,6 +92,11 @@ export class Game {
       reason: "",
     };
     m.rounds.push(r);
+    if (m.mode === "minesweeper") {
+      r.mines = createMines(this.store.room()?.difficulty || "easy");
+      r.phase = "playing";
+      r.start = this.now();
+    }
     if (m.mode === "race") {
       const word = this.pick();
       r.answers = { 1: word, 2: word };
@@ -138,7 +158,11 @@ export class Game {
       r.phase = "playing";
       this.persist();
     }
-    if (r.phase === "playing" && this.now() >= r.deadline)
+    if (
+      m.mode !== "minesweeper" &&
+      r.phase === "playing" &&
+      this.now() >= r.deadline
+    )
       this.finishRound(null, "time_up");
     if (m.status !== "active") return;
     const expired = [1, 2].find(
@@ -159,6 +183,22 @@ export class Game {
     const m = this.match,
       r = this.round;
     const partner = id === 1 ? 2 : 1;
+    if (event === "reveal") {
+      if (
+        !m ||
+        !r?.mines ||
+        m.mode !== "minesweeper" ||
+        p.matchId !== m.id ||
+        p.roundId !== r.id
+      )
+        throw Error("This match has changed.");
+      if (m.status !== "active" || r.phase !== "playing")
+        throw Error("The match has ended.");
+      const result = reveal(r.mines, id, p.cell, p.turn, p.requestId);
+      if (result) this.finishRound(result.winner, result.reason);
+      else this.persist();
+      return;
+    }
     if (event === "ready") {
       if (!this.online.get(partner))
         throw Error("Your partner needs to be online before you can start.");
@@ -197,6 +237,7 @@ export class Game {
       return;
     }
     if (event === "guess") {
+      if (m?.mode === "minesweeper") throw Error("Select a tile instead.");
       if (!r || !m || p.roundId !== r.id)
         throw Error("This round has changed.");
       if (
@@ -236,7 +277,8 @@ export class Game {
       if (!this.online.get(partner))
         throw Error("Waiting for your partner to reconnect.");
       if (!this.rematch.includes(id)) this.rematch.push(id);
-      if (this.rematch.length === 2) this.start(m.mode, m.format);
+      if (this.rematch.length === 2)
+        this.start(m.mode, m.format, r?.mines?.difficulty);
       return;
     }
     if (event === "return") {
@@ -258,7 +300,9 @@ export class Game {
         typeof p.description !== "string" ||
         p.description.length > 120 ||
         !["✦", "♡", "☾", "✿"].includes(p.icon) ||
-        !["race", "swap"].includes(p.mode) ||
+        !["race", "swap", "minesweeper"].includes(p.mode) ||
+        (p.difficulty !== undefined &&
+          !Object.hasOwn(difficulties, p.difficulty)) ||
         !["single", "series"].includes(p.format)
       )
         throw Error("Check your room settings.");
@@ -269,6 +313,7 @@ export class Game {
         icon: p.icon,
         mode: p.mode,
         format: p.format,
+        difficulty: p.difficulty || room.difficulty || "easy",
       });
       this.ready = [];
       return;
@@ -319,6 +364,7 @@ export class Game {
       modeStats: {
         race: this.store.stats("race"),
         swap: this.store.stats("swap"),
+        minesweeper: this.store.stats("minesweeper"),
       },
       match: m
         ? {
@@ -327,6 +373,7 @@ export class Game {
             round: r
               ? {
                   ...r,
+                  mines: r.mines ? minesView(r.mines, !!over) : undefined,
                   answers: over ? r.answers : undefined,
                   guesses: over ? r.guesses : { [id]: r.guesses[id] },
                   counts: {

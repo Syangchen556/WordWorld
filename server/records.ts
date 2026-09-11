@@ -4,7 +4,9 @@ export abstract class Records {
   personalBests() {
     const best: Record<number, number> = { 1: Infinity, 2: Infinity };
     const records: Record<string, number[]> = {};
-    for (const m of [...this.history()].reverse())
+    for (const m of [...this.history()]
+      .reverse()
+      .filter((m) => m.mode !== "minesweeper"))
       for (const r of m.rounds) {
         if (r.phase !== "ended" || !r.start || r.end < r.start) continue;
         for (const id of [1, 2]) {
@@ -24,6 +26,7 @@ export abstract class Records {
       const wins = matches.filter((m) => m.winner === id).length,
         draws = matches.filter((m) => m.winner === null).length;
       const rounds = all
+        .filter((m) => m.mode !== "minesweeper")
         .flatMap((m) => m.rounds)
         .filter((r) => r.start > 0 && r.end >= r.start && r.phase === "ended");
       const solved = rounds.flatMap((r) => {

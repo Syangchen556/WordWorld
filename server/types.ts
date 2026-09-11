@@ -1,4 +1,5 @@
-export type Mode = "race" | "swap";
+import type { MinesState, Difficulty } from "./minesweeper";
+export type Mode = "race" | "swap" | "minesweeper";
 export type Format = "single" | "series";
 export type Mark = "correct" | "present" | "absent";
 export type Guess = {
@@ -14,6 +15,7 @@ export type Profile = {
   color: "purple" | "yellow";
 };
 export type Room = {
+  difficulty?: Difficulty;
   name: string;
   description: string;
   icon: string;
@@ -21,6 +23,7 @@ export type Room = {
   format: Format;
 };
 export type Round = {
+  mines?: MinesState;
   id: string;
   number: number;
   phase: "preparing" | "countdown" | "playing" | "ended" | "abandoned";

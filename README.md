@@ -4,6 +4,8 @@ A private multiplayer word game for two people, ready to deploy as a **Next.js a
 
 Both players open the same website. Profiles, private sessions, the live match, scores and history are stored in PostgreSQL. The frontend keeps the purple/yellow/black design, with green/amber/gray puzzle feedback independent of player colors.
 
+The room also includes **two-player Minesweeper**: three difficulties, a shared board, alternating turns and three lives per player. It uses the same private access, saved matches and rematch flow. See [MINESWEEPER.md](MINESWEEPER.md) for rules and implementation details. Same Word Race and Word Swap remain available.
+
 ## What changed for Vercel
 
 The original single-process Socket.IO/SQLite backend has been replaced by Next.js API routes and PostgreSQL transactions. Browsers send guesses immediately and request fresh private snapshots about once a second. This is real shared multiplayer; there is no simulated opponent or browser-owned score storage. The opponent normally sees updates within one polling interval plus network/database latency.

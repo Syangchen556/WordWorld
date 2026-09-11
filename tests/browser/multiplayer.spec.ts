@@ -139,6 +139,89 @@ test("two private browser sessions play, refresh, rematch and retain history", a
     fullPage: true,
     animations: "disabled",
   });
+  // The same authenticated room switches to Minesweeper after both word modes.
+  await a.getByRole("button", { name: "Our room", exact: true }).click();
+  await a.getByRole("button", { name: /Minesweeper One shared board/ }).click();
+  await expect(
+    a.getByRole("heading", { name: "Choose your difficulty" }),
+  ).toBeVisible();
+  await a.getByRole("button", { name: /medium 12 × 12 25 mines/i }).click();
+  await expect(
+    b.getByRole("button", { name: /medium 12 × 12 25 mines/i }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await a.getByRole("button", { name: /hard 16 × 16 50 mines/i }).click();
+  await a.getByRole("button", { name: "Ready to play" }).click();
+  await b.getByRole("button", { name: "Ready to play" }).click();
+  await expect(a.locator(".mines-turn")).toHaveText("Your turn");
+  await expect(b.locator(".mines-turn")).toHaveText("Opponent’s turn");
+  await expect(a.locator(".mine-cell")).toHaveCount(256);
+  await expect(b.locator(".mine-cell:enabled")).toHaveCount(0);
+  const firstMove = a.waitForResponse((r) => r.url().endsWith("/api/action"));
+  await a
+    .getByRole("button", { name: "Row 1, column 1: hidden", exact: true })
+    .click();
+  const mineState = (await (await firstMove).json()).state;
+  expect(mineState.match.round.mines.cells[0]).toBe(0);
+  expect(mineState.match.round.mines.layout).toBeUndefined();
+  expect(mineState.match.round.mines.moves).toBeUndefined();
+  await expect(b.locator(".mines-turn")).toHaveText("Your turn");
+  await expect(a.getByLabel("Violet: 3 lives")).toBeVisible();
+  await b.locator(".mine-cell.hidden-cell").first().click();
+  await expect(a.locator(".mines-turn")).toHaveText("Your turn");
+  const stale = await c1.request.post("/api/action", {
+    headers: { Origin: "http://localhost:3100" },
+    data: {
+      tabId: "browser-check",
+      event: "reveal",
+      payload: {
+        matchId: mineState.match.id,
+        roundId: mineState.match.round.id,
+        turn: 0,
+        cell: 255,
+        requestId: "stale-browser-request",
+      },
+    },
+  });
+  expect(stale.status()).toBe(400);
+  expect((await stale.json()).error).toContain("turn has changed");
+  await b.reload();
+  await expect(b.locator(".mines-help")).toContainText("2 moves");
+  await expect(a.locator(".mine-cell").first()).toHaveAttribute(
+    "aria-label",
+    "Row 1, column 1: empty",
+  );
+  await expect(b.locator(".mine-cell").first()).toHaveAttribute(
+    "aria-label",
+    "Row 1, column 1: empty",
+  );
+  expect(
+    await b.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await a.screenshot({
+    path: "test-results/mines-desktop.png",
+    fullPage: true,
+  });
+  await b.screenshot({ path: "test-results/mines-mobile.png", fullPage: true });
+  a.once("dialog", (dialog) => dialog.accept());
+  await a.getByRole("button", { name: "Concede match" }).click();
+  await expect(b.getByText("This one’s yours!")).toBeVisible();
+  await a.getByRole("button", { name: "One more? Rematch" }).click();
+  await b.getByRole("button", { name: "One more? Rematch" }).click();
+  await expect(a.locator(".mine-cell.hidden-cell")).toHaveCount(256);
+  await expect(a.locator(".mines-help")).toContainText("0 moves");
+  await expect(a.getByLabel("Sunny: 3 lives")).toBeVisible();
+  await expect(a.locator(".mines-turn")).toHaveText("Your turn");
+  a.once("dialog", (dialog) => dialog.accept());
+  await a.getByRole("button", { name: "Concede match" }).click();
+  await a.getByRole("button", { name: "Match history", exact: true }).click();
+  await expect(a.getByText("5 saved matches")).toBeVisible();
+  await a
+    .locator(".history-row")
+    .filter({ hasText: "Minesweeper" })
+    .last()
+    .click();
+  await expect(a.locator(".mine-cell")).toHaveCount(256);
+  await expect(a.getByRole("heading", { name: "Final board" })).toBeVisible();
   expect(errors).toEqual([]);
   await c1.close();
   await c2.close();

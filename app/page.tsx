@@ -1,12 +1,17 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LiveClient } from "../client/live";
+import { MinesBoard, MinesHistory } from "../client/minesweeper";
 import type { Game } from "../server/game";
 import type { Guess, Match, Profile, Room } from "../server/types";
 type State = ReturnType<Game["snapshot"]>;
 type Tab = "room" | "history" | "stats" | "settings";
 const modeName = (mode: string) =>
-  mode === "race" ? "Same Word Race" : "Word Swap";
+  mode === "race"
+    ? "Same Word Race"
+    : mode === "minesweeper"
+      ? "Minesweeper"
+      : "Word Swap";
 const duration = (ms: number | null | undefined) =>
   ms == null
     ? "—"
@@ -20,6 +25,8 @@ const labelReason = (s: string) =>
     disconnect: "Disconnect forfeit",
     both_disconnected: "Both players disconnected",
     server_restart: "Server restarted",
+    three_mines: "Three mines hit — no lives remaining",
+    safe_cleared: "All safe tiles cleared — remaining lives decide",
   })[s] || s;
 function Avatar({
   player,
@@ -245,6 +252,7 @@ export default function Page() {
       );
   }, [myGuesses.length, round?.id]);
   const canGuess = !!(
+    match?.mode !== "minesweeper" &&
     connected &&
     round?.phase === "playing" &&
     myGuesses.length < 6 &&
@@ -678,56 +686,107 @@ export default function Page() {
                       <span>01 — PICK A MODE</span>
                     </div>
                     <div className="mode-options">
-                      {(["race", "swap"] as const).map((mode) => (
-                        <button
-                          key={mode}
-                          className={`mode-card ${state.room?.mode === mode ? "chosen" : ""}`}
-                          onClick={() =>
-                            act("settings", { ...state.room, mode })
-                          }
-                        >
-                          <span className="mode-symbol">
-                            {mode === "race" ? "⚡" : "⇄"}
-                          </span>
-                          <span>
-                            <strong>{modeName(mode)}</strong>
-                            <small>
-                              {mode === "race"
-                                ? "One word. Two minds. First to solve wins."
-                                : "Pick a secret word for each other."}
-                            </small>
-                          </span>
-                          <span className="radio-dot" />
-                        </button>
-                      ))}
-                    </div>
-                    <div className="format-row">
-                      <div>
-                        <h3>Make it a…</h3>
-                        <p>
-                          {state.room?.format === "single"
-                            ? "A quick little showdown."
-                            : "First to three wins takes the crown."}
-                        </p>
-                      </div>
-                      <div className="segmented">
-                        {(["single", "series"] as const).map((format) => (
+                      {(["race", "swap", "minesweeper"] as const).map(
+                        (mode) => (
                           <button
-                            key={format}
-                            className={
-                              state.room?.format === format ? "chosen" : ""
-                            }
+                            key={mode}
+                            disabled={pending || !connected}
+                            className={`mode-card ${state.room?.mode === mode ? "chosen" : ""}`}
                             onClick={() =>
-                              act("settings", { ...state.room, format })
+                              act("settings", { ...state.room, mode })
                             }
                           >
-                            {format === "single"
-                              ? "Single round"
-                              : "First to 3"}
+                            <span className="mode-symbol">
+                              {mode === "race"
+                                ? "⚡"
+                                : mode === "minesweeper"
+                                  ? "💣"
+                                  : "⇄"}
+                            </span>
+                            <span>
+                              <strong>{modeName(mode)}</strong>
+                              <small>
+                                {mode === "race"
+                                  ? "One word. Two minds. First to solve wins."
+                                  : mode === "minesweeper"
+                                    ? "One shared board. Three lives. Take turns."
+                                    : "Pick a secret word for each other."}
+                              </small>
+                            </span>
+                            <span className="radio-dot" />
                           </button>
-                        ))}
-                      </div>
+                        ),
+                      )}
                     </div>
+                    {state.room?.mode === "minesweeper" ? (
+                      <div className="mines-setup">
+                        <div className="section-title">
+                          <h3>Choose your difficulty</h3>
+                          <span>02 — SET UP</span>
+                        </div>
+                        <div className="mines-difficulties">
+                          {(["easy", "medium", "hard"] as const).map(
+                            (difficulty, index) => (
+                              <button
+                                key={difficulty}
+                                className={
+                                  (state.room?.difficulty || "easy") ===
+                                  difficulty
+                                    ? "chosen"
+                                    : ""
+                                }
+                                aria-pressed={
+                                  (state.room?.difficulty || "easy") ===
+                                  difficulty
+                                }
+                                disabled={pending || !connected}
+                                onClick={() =>
+                                  act("settings", { ...state.room, difficulty })
+                                }
+                              >
+                                <strong>{difficulty}</strong>
+                                <span>
+                                  {[8, 12, 16][index]} × {[8, 12, 16][index]}
+                                </span>
+                                <small>{[10, 25, 50][index]} mines</small>
+                              </button>
+                            ),
+                          )}
+                        </div>
+                        <p className="muted">
+                          One match · Three lives each · Player 1 starts · No
+                          time limit
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="format-row">
+                        <div>
+                          <h3>Make it a…</h3>
+                          <p>
+                            {state.room?.format === "single"
+                              ? "A quick little showdown."
+                              : "First to three wins takes the crown."}
+                          </p>
+                        </div>
+                        <div className="segmented">
+                          {(["single", "series"] as const).map((format) => (
+                            <button
+                              key={format}
+                              className={
+                                state.room?.format === format ? "chosen" : ""
+                              }
+                              onClick={() =>
+                                act("settings", { ...state.room, format })
+                              }
+                            >
+                              {format === "single"
+                                ? "Single round"
+                                : "First to 3"}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="ready-area">
                     <button
@@ -786,6 +845,26 @@ export default function Page() {
                       <Avatar player={partner} small />
                     </div>
                   </div>
+                  {round?.mines && (
+                    <MinesBoard
+                      key={round.id}
+                      data={round.mines}
+                      profiles={state.profiles}
+                      me={me.id}
+                      active={!!active}
+                      connected={connected}
+                      pending={pending}
+                      onReveal={(cell, turn, requestId) =>
+                        act("reveal", {
+                          matchId: match.id,
+                          roundId: round.id,
+                          cell,
+                          turn,
+                          requestId,
+                        })
+                      }
+                    />
+                  )}
                   {round?.phase === "preparing" && (
                     <div className="word-selection">
                       <span className="large-symbol">⇄</span>
@@ -847,85 +926,91 @@ export default function Page() {
                       </p>
                     </div>
                   )}
-                  {(round?.phase === "countdown" ||
-                    round?.phase === "playing") && (
-                    <div className="play-surface">
-                      <div className="play-status">
-                        <span>{myGuesses.length}/6 guesses</span>
-                        <span
-                          className={`timer ${round.deadline - state.serverNow < 30000 ? "urgent" : ""}`}
-                        >
-                          {round.phase === "countdown"
-                            ? `Starts in ${Math.max(1, Math.ceil((round.start - state.serverNow) / 1000))}`
-                            : duration(
-                                Math.max(0, round.deadline - state.serverNow),
-                              )}
-                        </span>
-                        <span>
+                  {match.mode !== "minesweeper" &&
+                    (round?.phase === "countdown" ||
+                      round?.phase === "playing") && (
+                      <div className="play-surface">
+                        <div className="play-status">
+                          <span>{myGuesses.length}/6 guesses</span>
                           <span
-                            className={`status-dot ${partner.online ? "online" : ""}`}
-                          />
-                          {partner.name}: {round.counts[partner.id]}/6
-                        </span>
-                      </div>
-                      <Board guesses={myGuesses} draft={draft} />
-                      {round.phase === "countdown" && (
-                        <p className="countdown-note">
-                          Same moment. Fresh possibilities. Get ready!
-                        </p>
-                      )}
-                      {myGuesses.length === 6 && (
-                        <p className="countdown-note">
-                          Your six guesses are in. {partner.name} can still
-                          solve.
-                        </p>
-                      )}
-                      <div className="keyboard" aria-label="On-screen keyboard">
-                        {["QWERTYUIOP", "ASDFGHJKL", "↵ZXCVBNM⌫"].map(
-                          (row, i) => (
-                            <div key={i}>
-                              {[...row].map((l) => {
-                                const marks = myGuesses.flatMap((g) =>
-                                  [...g.word].flatMap((c, j) =>
-                                    c === l ? [g.marks[j]] : [],
-                                  ),
-                                );
-                                const mark = marks.includes("correct")
-                                  ? "correct"
-                                  : marks.includes("present")
-                                    ? "present"
-                                    : marks.includes("absent")
-                                      ? "absent"
-                                      : "";
-                                return (
-                                  <button
-                                    key={l}
-                                    aria-label={
-                                      l === "↵"
-                                        ? "Enter guess"
-                                        : l === "⌫"
-                                          ? "Delete letter"
-                                          : `${l}${mark ? ", " + mark : ""}`
-                                    }
-                                    className={`${mark} ${l === "↵" || l === "⌫" ? "wide" : ""}`}
-                                    disabled={!canGuess}
-                                    onClick={() => key(l === "↵" ? "ENTER" : l)}
-                                  >
-                                    {l === "↵" ? "ENTER" : l}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          ),
+                            className={`timer ${round.deadline - state.serverNow < 30000 ? "urgent" : ""}`}
+                          >
+                            {round.phase === "countdown"
+                              ? `Starts in ${Math.max(1, Math.ceil((round.start - state.serverNow) / 1000))}`
+                              : duration(
+                                  Math.max(0, round.deadline - state.serverNow),
+                                )}
+                          </span>
+                          <span>
+                            <span
+                              className={`status-dot ${partner.online ? "online" : ""}`}
+                            />
+                            {partner.name}: {round.counts[partner.id]}/6
+                          </span>
+                        </div>
+                        <Board guesses={myGuesses} draft={draft} />
+                        {round.phase === "countdown" && (
+                          <p className="countdown-note">
+                            Same moment. Fresh possibilities. Get ready!
+                          </p>
                         )}
+                        {myGuesses.length === 6 && (
+                          <p className="countdown-note">
+                            Your six guesses are in. {partner.name} can still
+                            solve.
+                          </p>
+                        )}
+                        <div
+                          className="keyboard"
+                          aria-label="On-screen keyboard"
+                        >
+                          {["QWERTYUIOP", "ASDFGHJKL", "↵ZXCVBNM⌫"].map(
+                            (row, i) => (
+                              <div key={i}>
+                                {[...row].map((l) => {
+                                  const marks = myGuesses.flatMap((g) =>
+                                    [...g.word].flatMap((c, j) =>
+                                      c === l ? [g.marks[j]] : [],
+                                    ),
+                                  );
+                                  const mark = marks.includes("correct")
+                                    ? "correct"
+                                    : marks.includes("present")
+                                      ? "present"
+                                      : marks.includes("absent")
+                                        ? "absent"
+                                        : "";
+                                  return (
+                                    <button
+                                      key={l}
+                                      aria-label={
+                                        l === "↵"
+                                          ? "Enter guess"
+                                          : l === "⌫"
+                                            ? "Delete letter"
+                                            : `${l}${mark ? ", " + mark : ""}`
+                                      }
+                                      className={`${mark} ${l === "↵" || l === "⌫" ? "wide" : ""}`}
+                                      disabled={!canGuess}
+                                      onClick={() =>
+                                        key(l === "↵" ? "ENTER" : l)
+                                      }
+                                    >
+                                      {l === "↵" ? "ENTER" : l}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ),
+                          )}
+                        </div>
+                        <div className="tile-legend">
+                          <span>✓ Correct spot</span>
+                          <span>• Wrong spot</span>
+                          <span>− Not in word</span>
+                        </div>
                       </div>
-                      <div className="tile-legend">
-                        <span>✓ Correct spot</span>
-                        <span>• Wrong spot</span>
-                        <span>− Not in word</span>
-                      </div>
-                    </div>
-                  )}
+                    )}
                   {ended && (
                     <div className="results">
                       <span className="large-symbol">
@@ -967,42 +1052,44 @@ export default function Page() {
                             ? "No win awarded"
                             : "Match complete"}
                       </p>
-                      <div className="result-boards">
-                        {state.profiles.map((p) => {
-                          const guesses = round.guesses[p.id] || [],
-                            solved = guesses.find(
-                              (g) => g.word === round.answers?.[p.id],
-                            );
-                          const best = records.find(
-                            (s) => s.id === p.id,
-                          )?.fastest;
-                          return (
-                            <div key={p.id}>
-                              <h3>
-                                {p.name}{" "}
-                                <span className={`${p.color}-text`}>
-                                  {round.answers?.[p.id] || "—"}
-                                </span>
-                              </h3>
-                              <Board guesses={guesses} compact />
-                              <p>
-                                {guesses.length}/6 guesses ·{" "}
-                                {solved
-                                  ? duration(solved.at - round.start)
-                                  : "Unsolved"}
-                              </p>
-                              {solved &&
-                                state.personalBests[round.id]?.includes(
-                                  p.id,
-                                ) && (
-                                  <span className="best-badge">
-                                    ✦ Personal best · {duration(best)}
+                      {match.mode !== "minesweeper" && (
+                        <div className="result-boards">
+                          {state.profiles.map((p) => {
+                            const guesses = round.guesses[p.id] || [],
+                              solved = guesses.find(
+                                (g) => g.word === round.answers?.[p.id],
+                              );
+                            const best = records.find(
+                              (s) => s.id === p.id,
+                            )?.fastest;
+                            return (
+                              <div key={p.id}>
+                                <h3>
+                                  {p.name}{" "}
+                                  <span className={`${p.color}-text`}>
+                                    {round.answers?.[p.id] || "—"}
                                   </span>
-                                )}
-                            </div>
-                          );
-                        })}
-                      </div>
+                                </h3>
+                                <Board guesses={guesses} compact />
+                                <p>
+                                  {guesses.length}/6 guesses ·{" "}
+                                  {solved
+                                    ? duration(solved.at - round.start)
+                                    : "Unsolved"}
+                                </p>
+                                {solved &&
+                                  state.personalBests[round.id]?.includes(
+                                    p.id,
+                                  ) && (
+                                    <span className="best-badge">
+                                      ✦ Personal best · {duration(best)}
+                                    </span>
+                                  )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                       <div className="result-actions">
                         {match.status === "active" ? (
                           <button
@@ -1077,40 +1164,72 @@ export default function Page() {
                   {match ? "A LITTLE REMINDER" : "THE SHORT & SWEET VERSION"}
                 </span>
                 <h2>{modeName(match?.mode || state.room!.mode)}</h2>
-                <div className="rule">
-                  <span>01</span>
-                  <p>
-                    {(match?.mode || state.room?.mode) === "race"
-                      ? "You both get the same secret word."
-                      : "Choose a secret word for each other."}
-                  </p>
-                </div>
-                <div className="rule">
-                  <span>02</span>
-                  <p>
-                    Five letters. Six guesses.
-                    <br />
-                    Three minutes on the clock.
-                  </p>
-                </div>
-                <div className="rule">
-                  <span>03</span>
-                  <p>
-                    First to solve wins.
-                    <br />
-                    Bragging rights included.
-                  </p>
-                </div>
-                <div className="mini-tiles" aria-hidden="true">
-                  <b className="correct">W</b>
-                  <b className="present">O</b>
-                  <b>R</b>
-                  <b className="correct">D</b>
-                  <b className="present">S</b>
-                </div>
-                <small>
-                  Your partner’s board stays a secret until the round ends.
-                </small>
+                {(match?.mode || state.room?.mode) === "minesweeper" ? (
+                  <>
+                    <div className="rule">
+                      <span>01</span>
+                      <p>
+                        Take turns revealing one tile on the same board. The
+                        first tile and its neighbors are safe.
+                      </p>
+                    </div>
+                    <div className="rule">
+                      <span>02</span>
+                      <p>
+                        Numbers count adjacent mines. Empty areas open
+                        automatically as one move.
+                      </p>
+                    </div>
+                    <div className="rule">
+                      <span>03</span>
+                      <p>
+                        Three lives each. Hit three mines and lose. Clear every
+                        safe tile: more lives wins, equal lives draws.
+                      </p>
+                    </div>
+                    <small>
+                      Revealed tiles are shared. Hidden mines stay secret until
+                      the match ends.
+                    </small>
+                  </>
+                ) : (
+                  <>
+                    <div className="rule">
+                      <span>01</span>
+                      <p>
+                        {(match?.mode || state.room?.mode) === "race"
+                          ? "You both get the same secret word."
+                          : "Choose a secret word for each other."}
+                      </p>
+                    </div>
+                    <div className="rule">
+                      <span>02</span>
+                      <p>
+                        Five letters. Six guesses.
+                        <br />
+                        Three minutes on the clock.
+                      </p>
+                    </div>
+                    <div className="rule">
+                      <span>03</span>
+                      <p>
+                        First to solve wins.
+                        <br />
+                        Bragging rights included.
+                      </p>
+                    </div>
+                    <div className="mini-tiles" aria-hidden="true">
+                      <b className="correct">W</b>
+                      <b className="present">O</b>
+                      <b>R</b>
+                      <b className="correct">D</b>
+                      <b className="present">S</b>
+                    </div>
+                    <small>
+                      Your partner’s board stays a secret until the round ends.
+                    </small>
+                  </>
+                )}
               </section>
               <section className="recent-card">
                 <div className="section-title">
@@ -1128,7 +1247,11 @@ export default function Page() {
                       }}
                     >
                       <span className="recent-icon">
-                        {m.mode === "race" ? "⚡" : "⇄"}
+                        {m.mode === "race"
+                          ? "⚡"
+                          : m.mode === "minesweeper"
+                            ? "💣"
+                            : "⇄"}
                       </span>
                       <span>
                         <strong>
@@ -1196,27 +1319,35 @@ export default function Page() {
                       <h3>Round {r.number}</h3>
                       <span>{labelReason(r.reason)}</span>
                     </div>
-                    <div className="result-boards">
-                      {state.profiles.map((p) => {
-                        const solved = r.guesses[p.id].find(
-                          (g) => g.word === r.answers[p.id],
-                        );
-                        return (
-                          <div key={p.id}>
-                            <h3>
-                              {p.name} · {r.answers[p.id] || "Not chosen"}
-                            </h3>
-                            <Board guesses={r.guesses[p.id]} compact />
-                            <p>
-                              {r.guesses[p.id].length} guesses ·{" "}
-                              {solved
-                                ? duration(solved.at - r.start)
-                                : "Unsolved"}
-                            </p>
-                          </div>
-                        );
-                      })}
-                    </div>
+                    {r.mines ? (
+                      <MinesHistory
+                        data={r.mines}
+                        profiles={state.profiles}
+                        me={me.id}
+                      />
+                    ) : (
+                      <div className="result-boards">
+                        {state.profiles.map((p) => {
+                          const solved = r.guesses[p.id].find(
+                            (g) => g.word === r.answers[p.id],
+                          );
+                          return (
+                            <div key={p.id}>
+                              <h3>
+                                {p.name} · {r.answers[p.id] || "Not chosen"}
+                              </h3>
+                              <Board guesses={r.guesses[p.id]} compact />
+                              <p>
+                                {r.guesses[p.id].length} guesses ·{" "}
+                                {solved
+                                  ? duration(solved.at - r.start)
+                                  : "Unsolved"}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </article>
                 ))}
               </>
@@ -1234,7 +1365,11 @@ export default function Page() {
                       onClick={() => setDetail(m)}
                     >
                       <span className="recent-icon">
-                        {m.mode === "race" ? "⚡" : "⇄"}
+                        {m.mode === "race"
+                          ? "⚡"
+                          : m.mode === "minesweeper"
+                            ? "💣"
+                            : "⇄"}
                       </span>
                       <span>
                         <strong>{modeName(m.mode)}</strong>
@@ -1297,7 +1432,7 @@ export default function Page() {
             <div className="section-title">
               <h2>Head to head</h2>
               <div className="segmented">
-                {["all", "race", "swap"].map((mode) => (
+                {["all", "race", "swap", "minesweeper"].map((mode) => (
                   <button
                     key={mode}
                     className={statsMode === mode ? "chosen" : ""}
@@ -1311,7 +1446,7 @@ export default function Page() {
             <div className="stats-grid">
               {(statsMode === "all"
                 ? state.stats
-                : state.modeStats[statsMode as "race" | "swap"]
+                : state.modeStats[statsMode as "race" | "swap" | "minesweeper"]
               ).map((s) => {
                 const p = state.profiles.find((p) => p.id === s.id)!;
                 return (
@@ -1331,14 +1466,24 @@ export default function Page() {
                           "Current / best win streak",
                           `${s.currentStreak} / ${s.bestStreak}`,
                         ],
-                        ["Rounds played / solved", `${s.rounds} / ${s.solved}`],
-                        ["Solve rate", `${Math.round(s.solveRate * 100)}%`],
-                        ["Fastest solve", duration(s.fastest)],
-                        [
-                          "Average guesses",
-                          s.averageGuesses?.toFixed(1) || "—",
-                        ],
-                        ["Average solve time", duration(s.averageTime)],
+                        ...(statsMode === "minesweeper"
+                          ? []
+                          : [
+                              [
+                                "Word rounds played / solved",
+                                `${s.rounds} / ${s.solved}`,
+                              ],
+                              [
+                                "Solve rate",
+                                `${Math.round(s.solveRate * 100)}%`,
+                              ],
+                              ["Fastest solve", duration(s.fastest)],
+                              [
+                                "Average guesses",
+                                s.averageGuesses?.toFixed(1) || "—",
+                              ],
+                              ["Average solve time", duration(s.averageTime)],
+                            ]),
                       ].map(([k, v]) => (
                         <div key={k}>
                           <dt>{k}</dt>
@@ -1353,7 +1498,8 @@ export default function Page() {
             <p className="muted stats-note">
               Win rate includes draws. Forfeits count as match wins and losses.
               Abandoned matches and rounds are excluded. Solve averages use
-              correctly solved rounds only.
+              correctly solved rounds only. Word-solving metrics exclude
+              Minesweeper.
             </p>
           </section>
         )}
