@@ -1873,6 +1873,154 @@ dd {
   color: #c8f4d7;
 }
 
+.rps-surface,
+.rps-result {
+  text-align: center;
+  padding: 20px 10px;
+}
+.rps-status {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #c7bdd2;
+  font-size: 12px;
+}
+.rps-surface h2 {
+  margin-top: 24px;
+}
+.rps-timer {
+  color: #e8d3ff;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.rps-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 22px 0;
+}
+.rps-choice {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 20px 8px;
+  border: 2px solid #51445f;
+  border-radius: 14px;
+  background: #221c2c;
+  min-width: 0;
+}
+.rps-choice svg,
+.rps-revealed-choice svg {
+  width: 64px;
+  height: 64px;
+}
+.rps-choice span,
+.rps-revealed-choice > span {
+  text-transform: capitalize;
+}
+.rps-choice.chosen {
+  background: #443056;
+  border-color: #c59bff;
+  color: #f4eaff;
+}
+.rps-choice:enabled:hover {
+  border-color: #dfbfff;
+}
+.rps-choice:disabled {
+  opacity: 0.75;
+}
+.rps-choice.chosen:disabled {
+  opacity: 1;
+}
+.theme-yellow .rps-choice.chosen {
+  background: #494022;
+  border-color: #ffe16a;
+  color: #fff1af;
+}
+.rps-lock {
+  min-height: 48px;
+  min-width: 180px;
+  margin-bottom: 12px;
+}
+.rps-opponent,
+.rps-next {
+  text-align: center;
+  color: #dcc2ff;
+  padding: 0 12px 14px;
+}
+.rps-reveal {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+.rps-revealed-choice {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 18px 8px;
+  background: #241e2d;
+  border: 1px solid #645073;
+  border-radius: 14px;
+  animation: rps-reveal 0.35s ease-out;
+}
+.rps-revealed-choice strong {
+  overflow-wrap: anywhere;
+}
+.rps-revealed-choice.purple {
+  color: #d5afff;
+}
+.rps-revealed-choice.yellow {
+  color: #ffe479;
+}
+.rps-missing {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  font-size: 32px;
+}
+@keyframes rps-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.reduced-motion .rps-revealed-choice {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rps-revealed-choice {
+    animation: none;
+  }
+}
+.format-row .segmented {
+  flex-wrap: wrap;
+}
+@media (max-width: 760px) {
+  .rps-options {
+    gap: 6px;
+  }
+  .rps-choice {
+    padding: 16px 4px;
+    font-size: 12px;
+  }
+  .rps-choice svg {
+    width: 46px;
+    height: 46px;
+  }
+  .rps-surface {
+    padding: 16px 0;
+  }
+  .mode-card:has(.mode-symbol) .mode-symbol {
+    flex-shrink: 0;
+  }
+}
+
 /* Shared-board Minesweeper uses the room palette and contains large boards. */
 .mines-setup {
   margin-top: 24px;

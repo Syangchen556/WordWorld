@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import wordListPath from "word-list";
 import { score, type Match, type Round, type Mode, type Format } from "./types";
 import type { GameStore } from "./state-store";
+import { rpsWinner, rpsView, validChoice } from "./rps";
 import {
   createMines,
   difficulties,
@@ -58,7 +59,12 @@ export class Game {
     this.match = {
       id: randomUUID(),
       mode,
-      format: mode === "minesweeper" ? "single" : format,
+      format:
+        mode === "minesweeper"
+          ? "single"
+          : mode !== "rps" && format === "first5"
+            ? "series"
+            : format,
       start: this.now(),
       end: 0,
       status: "active",
@@ -92,6 +98,10 @@ export class Game {
       reason: "",
     };
     m.rounds.push(r);
+    if (m.mode === "rps") {
+      r.rps = { choices: {}, requests: {}, nextAt: 0 };
+      this.countdown();
+    }
     if (m.mode === "minesweeper") {
       r.mines = createMines(this.store.room()?.difficulty || "easy");
       r.phase = "playing";
@@ -109,7 +119,7 @@ export class Game {
     const r = this.round!;
     r.phase = "countdown";
     r.start = this.now() + 3000;
-    r.deadline = r.start + 180000;
+    r.deadline = r.start + (this.match!.mode === "rps" ? 10000 : 180000);
   }
   persist() {
     if (this.match) this.store.saveMatch(this.match);
@@ -125,11 +135,18 @@ export class Game {
     r.reason = reason;
     r.ready = [];
     if (winner) m.score[winner]++;
-    if (m.format === "single" || (winner && m.score[winner] >= 3)) {
+    if (
+      m.format === "single" ||
+      (winner && m.score[winner] >= (m.format === "first5" ? 5 : 3))
+    ) {
       m.status = "completed";
       m.winner = winner;
       m.end = r.end;
       m.reason = reason;
+    }
+    if (r.rps) {
+      r.rps.scoreAfter = { ...m.score };
+      r.rps.nextAt = m.status === "active" ? r.end + 3000 : 0;
     }
     this.persist();
   }
@@ -162,8 +179,13 @@ export class Game {
       m.mode !== "minesweeper" &&
       r.phase === "playing" &&
       this.now() >= r.deadline
-    )
-      this.finishRound(null, "time_up");
+    ) {
+      if (r.rps) {
+        const locked = [1, 2].filter((id) => r.rps!.choices[id]);
+        if (locked.length === 1) this.finishRound(locked[0], "rps_timeout");
+        else if (!locked.length) this.finishMatch(null, "inactivity");
+      } else this.finishRound(null, "time_up");
+    }
     if (m.status !== "active") return;
     const expired = [1, 2].find(
       (id) =>
@@ -176,6 +198,16 @@ export class Game {
         this.finishMatch(null, "both_disconnected");
       else this.finishMatch(expired === 1 ? 2 : 1, "disconnect");
     }
+    if (
+      m.status === "active" &&
+      r.rps &&
+      r.phase === "ended" &&
+      r.rps.nextAt &&
+      this.now() >= r.rps.nextAt &&
+      this.online.get(1) &&
+      this.online.get(2)
+    )
+      this.newRound();
   }
   action(id: number, event: string, p: any = {}) {
     if (id !== 1 && id !== 2) throw Error("Unauthorized.");
@@ -183,6 +215,38 @@ export class Game {
     const m = this.match,
       r = this.round;
     const partner = id === 1 ? 2 : 1;
+    if (event === "rpsLock") {
+      if (
+        !m ||
+        !r?.rps ||
+        m.mode !== "rps" ||
+        p.matchId !== m.id ||
+        p.roundId !== r.id
+      )
+        throw Error("This round has changed.");
+      if (!validChoice(p.choice))
+        throw Error("Choose rock, paper, or scissors.");
+      if (
+        typeof p.requestId !== "string" ||
+        !/^[a-zA-Z0-9-]{8,80}$/.test(p.requestId)
+      )
+        throw Error("Invalid request ID.");
+      if (r.rps.requests[id] === p.requestId && r.rps.choices[id] === p.choice)
+        return;
+      if (m.status !== "active" || r.phase !== "playing")
+        throw Error("The selection window is closed.");
+      if (r.rps.choices[id]) throw Error("Your choice is already locked.");
+      r.rps.choices[id] = p.choice;
+      r.rps.requests[id] = p.requestId;
+      r.locked.push(id);
+      if (r.locked.length === 2)
+        this.finishRound(
+          rpsWinner(r.rps.choices[1], r.rps.choices[2]),
+          "rps_normal",
+        );
+      else this.persist();
+      return;
+    }
     if (event === "reveal") {
       if (
         !m ||
@@ -209,6 +273,10 @@ export class Game {
           this.start(room.mode, room.format);
         }
       } else if (m.status === "active" && r?.phase === "ended") {
+        if (m.mode === "rps")
+          throw Error(
+            "The next round starts automatically when both players are online.",
+          );
         if (p.roundId !== r.id) throw Error("This round has changed.");
         if (!r.ready.includes(id)) r.ready.push(id);
         if (r.ready.length === 2) this.newRound();
@@ -238,6 +306,7 @@ export class Game {
     }
     if (event === "guess") {
       if (m?.mode === "minesweeper") throw Error("Select a tile instead.");
+      if (m?.mode === "rps") throw Error("Lock a choice instead.");
       if (!r || !m || p.roundId !== r.id)
         throw Error("This round has changed.");
       if (
@@ -300,10 +369,10 @@ export class Game {
         typeof p.description !== "string" ||
         p.description.length > 120 ||
         !["✦", "♡", "☾", "✿"].includes(p.icon) ||
-        !["race", "swap", "minesweeper"].includes(p.mode) ||
+        !["race", "swap", "minesweeper", "rps"].includes(p.mode) ||
         (p.difficulty !== undefined &&
           !Object.hasOwn(difficulties, p.difficulty)) ||
-        !["single", "series"].includes(p.format)
+        !["single", "series", "first5"].includes(p.format)
       )
         throw Error("Check your room settings.");
       this.store.saveRoom({
@@ -312,7 +381,7 @@ export class Game {
         description: p.description,
         icon: p.icon,
         mode: p.mode,
-        format: p.format,
+        format: p.mode !== "rps" && p.format === "first5" ? "series" : p.format,
         difficulty: p.difficulty || room.difficulty || "easy",
       });
       this.ready = [];
@@ -365,7 +434,9 @@ export class Game {
         race: this.store.stats("race"),
         swap: this.store.stats("swap"),
         minesweeper: this.store.stats("minesweeper"),
+        rps: this.store.stats("rps"),
       },
+      rpsStats: this.store.rpsStats(),
       match: m
         ? {
             ...m,
@@ -373,6 +444,7 @@ export class Game {
             round: r
               ? {
                   ...r,
+                  rps: r.rps ? rpsView(r.rps, id, !!over) : undefined,
                   mines: r.mines ? minesView(r.mines, !!over) : undefined,
                   answers: over ? r.answers : undefined,
                   guesses: over ? r.guesses : { [id]: r.guesses[id] },

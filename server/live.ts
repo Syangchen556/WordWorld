@@ -28,22 +28,28 @@ export function resumeGame(store: StateStore) {
   };
   // Settle elapsed boundaries in chronological order, before a returning player
   // becomes online. At a tie, Game.tick settles the deadline before disconnects.
-  const r = game.round;
-  const times = [
-    r?.start,
-    r?.deadline,
-    ...Object.values(live.until).map((t) => t + 30000),
-    store.now,
-  ]
-    .filter(
-      (t): t is number =>
-        typeof t === "number" && t > live.updatedAt && t <= store.now,
-    )
-    .sort((a, b) => a - b);
-  for (const t of times) {
+  // Recalculate after every boundary: an RPS result can schedule the next
+  // countdown, whose start and deadline must also be settled chronologically.
+  let cursor = live.updatedAt;
+  while (cursor < store.now) {
+    const r = game.round;
+    const t = [
+      r?.start,
+      r?.deadline,
+      r?.rps?.nextAt,
+      ...Object.values(live.until).map((t) => t + 30000),
+      store.now,
+    ]
+      .filter(
+        (t): t is number =>
+          typeof t === "number" && t > cursor && t <= store.now,
+      )
+      .sort((a, b) => a - b)[0];
+    if (t === undefined) break;
     presence(t);
     game.now = () => t;
     game.tick();
+    cursor = t;
   }
   game.now = () => store.now;
   presence(store.now);
@@ -80,6 +86,8 @@ export function heartbeat(
     if (game.online.get(player)) game.offlineAt.delete(player);
     else game.offlineAt.set(player, live.until[player] || store.now);
   }
+  // Resume a waiting RPS series only after current presence is known.
+  if (game.round?.rps && game.round.phase === "ended") game.tick();
 }
 export function saveLive(store: StateStore, game: Game) {
   for (const [key, t] of Object.entries(store.data.live.tabs))

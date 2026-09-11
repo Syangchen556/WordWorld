@@ -1,6 +1,7 @@
 import type { MinesState, Difficulty } from "./minesweeper";
-export type Mode = "race" | "swap" | "minesweeper";
-export type Format = "single" | "series";
+import type { RpsState } from "./rps";
+export type Mode = "race" | "swap" | "minesweeper" | "rps";
+export type Format = "single" | "series" | "first5";
 export type Mark = "correct" | "present" | "absent";
 export type Guess = {
   word: string;
@@ -23,6 +24,7 @@ export type Room = {
   format: Format;
 };
 export type Round = {
+  rps?: RpsState;
   mines?: MinesState;
   id: string;
   number: number;

@@ -6,7 +6,7 @@ export abstract class Records {
     const records: Record<string, number[]> = {};
     for (const m of [...this.history()]
       .reverse()
-      .filter((m) => m.mode !== "minesweeper"))
+      .filter((m) => m.mode === "race" || m.mode === "swap"))
       for (const r of m.rounds) {
         if (r.phase !== "ended" || !r.start || r.end < r.start) continue;
         for (const id of [1, 2]) {
@@ -26,7 +26,7 @@ export abstract class Records {
       const wins = matches.filter((m) => m.winner === id).length,
         draws = matches.filter((m) => m.winner === null).length;
       const rounds = all
-        .filter((m) => m.mode !== "minesweeper")
+        .filter((m) => m.mode === "race" || m.mode === "swap")
         .flatMap((m) => m.rounds)
         .filter((r) => r.start > 0 && r.end >= r.start && r.phase === "ended");
       const solved = rounds.flatMap((r) => {
@@ -64,5 +64,27 @@ export abstract class Records {
           : null,
       };
     });
+  }
+  rpsStats() {
+    const rounds = this.history()
+      .filter((m) => m.mode === "rps")
+      .flatMap((m) => m.rounds)
+      .filter(
+        (r) =>
+          r.phase === "ended" &&
+          ["rps_normal", "rps_timeout"].includes(r.reason),
+      );
+    return [1, 2].map((id) => ({
+      id,
+      wins: rounds.filter((r) => r.winner === id).length,
+      losses: rounds.filter((r) => r.winner !== null && r.winner !== id).length,
+      draws: rounds.filter((r) => r.winner === null).length,
+      choices: {
+        rock: rounds.filter((r) => r.rps?.choices[id] === "rock").length,
+        paper: rounds.filter((r) => r.rps?.choices[id] === "paper").length,
+        scissors: rounds.filter((r) => r.rps?.choices[id] === "scissors")
+          .length,
+      },
+    }));
   }
 }

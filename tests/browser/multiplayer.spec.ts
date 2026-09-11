@@ -222,6 +222,118 @@ test("two private browser sessions play, refresh, rematch and retain history", a
     .click();
   await expect(a.locator(".mine-cell")).toHaveCount(256);
   await expect(a.getByRole("heading", { name: "Final board" })).toBeVisible();
+  await a.getByRole("button", { name: "Our room", exact: true }).click();
+  await a.getByRole("button", { name: "Back to our room" }).click();
+  await a
+    .getByRole("button", { name: /Rock Paper Scissors Choose, lock/ })
+    .click();
+  await a.getByRole("button", { name: "Single round", exact: true }).click();
+  await a.getByRole("button", { name: "Ready to play" }).click();
+  await b.getByRole("button", { name: "Ready to play" }).click();
+  await expect(
+    a.getByRole("button", { name: "rock", exact: true }),
+  ).toBeEnabled({ timeout: 10000 });
+  await a.getByRole("button", { name: "rock", exact: true }).click();
+  await a.getByRole("button", { name: "paper", exact: true }).click();
+  await a.getByRole("button", { name: "Lock Choice", exact: true }).click();
+  await expect(b.locator(".rps-opponent")).toHaveText("Violet: locked");
+  const privateView = await (
+    await c2.request.post("/api/state", {
+      headers: { Origin: "http://localhost:3100" },
+      data: { tabId: "rps-private-check" },
+    })
+  ).json();
+  expect(privateView.state.match.round.rps.choices).toEqual({});
+  expect(privateView.state.rpsStats[0].choices.paper).toBe(0);
+  await a.reload();
+  await expect(
+    a.getByRole("button", { name: "Locked: paper", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    a.getByRole("button", { name: "rock", exact: true }),
+  ).toBeDisabled();
+  await b.getByRole("button", { name: "rock", exact: true }).click();
+  await b.getByRole("button", { name: "Lock Choice", exact: true }).click();
+  await expect(
+    a.getByRole("heading", { name: "You win", exact: true }),
+  ).toBeVisible();
+  await expect(
+    b.getByRole("heading", { name: "You lose", exact: true }),
+  ).toBeVisible();
+  await expect(
+    a.getByText("Paper covers rock.", { exact: true }),
+  ).toBeVisible();
+  expect(
+    await b.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+  ).toBe(true);
+  await a.screenshot({
+    path: "test-results/rps-result-desktop.png",
+    fullPage: true,
+  });
+  await b.screenshot({
+    path: "test-results/rps-result-mobile.png",
+    fullPage: true,
+  });
+  await a.getByRole("button", { name: "One more? Rematch" }).click();
+  await b.getByRole("button", { name: "One more? Rematch" }).click();
+  await expect(
+    a.getByRole("button", { name: "scissors", exact: true }),
+  ).toBeEnabled({ timeout: 10000 });
+  await a.getByRole("button", { name: "scissors", exact: true }).click();
+  await a.getByRole("button", { name: "Lock Choice", exact: true }).click();
+  await expect(
+    a.getByText(
+      "Violet wins by timeout: the other player did not lock a choice.",
+      { exact: true },
+    ),
+  ).toBeVisible({ timeout: 15000 });
+  await a.getByRole("button", { name: "Back to our room" }).click();
+  await a.getByRole("button", { name: "First to 5", exact: true }).click();
+  await a.getByRole("button", { name: "Ready to play" }).click();
+  await b.getByRole("button", { name: "Ready to play" }).click();
+  await expect(
+    a.getByRole("button", { name: "rock", exact: true }),
+  ).toBeEnabled({ timeout: 10000 });
+  await a.screenshot({
+    path: "test-results/rps-play-desktop.png",
+    fullPage: true,
+  });
+  await b.screenshot({
+    path: "test-results/rps-play-mobile.png",
+    fullPage: true,
+  });
+  await a.getByRole("button", { name: "rock", exact: true }).click();
+  await b.getByRole("button", { name: "rock", exact: true }).click();
+  await a.getByRole("button", { name: "Lock Choice", exact: true }).click();
+  await b.getByRole("button", { name: "Lock Choice", exact: true }).click();
+  await expect(
+    a.getByRole("heading", { name: "Draw", exact: true }),
+  ).toBeVisible();
+  await expect(a.locator(".panel-heading")).toContainText("ROUND 2", {
+    timeout: 10000,
+  });
+  await expect(
+    a.getByRole("button", { name: "rock", exact: true }),
+  ).toBeEnabled({ timeout: 10000 });
+  a.once("dialog", (dialog) => dialog.accept());
+  await a.getByRole("button", { name: "Concede match" }).click();
+  await a.getByRole("button", { name: "Our stats", exact: true }).click();
+  await a
+    .getByRole("button", { name: "Rock Paper Scissors", exact: true })
+    .click();
+  await expect(
+    a.getByText("Round wins / losses / draws").first(),
+  ).toBeVisible();
+  await expect(a.getByText("Rock choices").first()).toBeVisible();
+  await a.getByRole("button", { name: "Match history", exact: true }).click();
+  await a
+    .locator(".history-row")
+    .filter({ hasText: "Rock Paper Scissors" })
+    .last()
+    .click();
+  await expect(
+    a.getByText("Paper covers rock.", { exact: true }),
+  ).toBeVisible();
   expect(errors).toEqual([]);
   await c1.close();
   await c2.close();

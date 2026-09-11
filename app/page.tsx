@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LiveClient } from "../client/live";
 import { MinesBoard, MinesHistory } from "../client/minesweeper";
+import { RpsPlay, RpsResult } from "../client/rps";
 import type { Game } from "../server/game";
 import type { Guess, Match, Profile, Room } from "../server/types";
 type State = ReturnType<Game["snapshot"]>;
@@ -9,13 +10,21 @@ type Tab = "room" | "history" | "stats" | "settings";
 const modeName = (mode: string) =>
   mode === "race"
     ? "Same Word Race"
-    : mode === "minesweeper"
-      ? "Minesweeper"
-      : "Word Swap";
+    : mode === "rps"
+      ? "Rock Paper Scissors"
+      : mode === "minesweeper"
+        ? "Minesweeper"
+        : "Word Swap";
 const duration = (ms: number | null | undefined) =>
   ms == null
     ? "—"
     : `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
+const formatName = (format: string) =>
+  format === "single"
+    ? "Single round"
+    : format === "first5"
+      ? "First to 5"
+      : "First to 3";
 const labelReason = (s: string) =>
   ({
     solved: "Solved",
@@ -27,6 +36,9 @@ const labelReason = (s: string) =>
     server_restart: "Server restarted",
     three_mines: "Three mines hit — no lives remaining",
     safe_cleared: "All safe tiles cleared — remaining lives decide",
+    rps_normal: "Choices revealed",
+    rps_timeout: "Won by timeout",
+    inactivity: "Neither player locked — abandoned",
   })[s] || s;
 function Avatar({
   player,
@@ -202,7 +214,7 @@ export default function Page() {
           r?.phase === "playing"
             ? "The round has started. Good luck!"
             : r?.phase === "ended"
-              ? "Round complete. Answers are revealed."
+              ? "Round complete. Results are revealed."
               : "",
         );
         lastPhase.current = r?.phase || "";
@@ -252,6 +264,7 @@ export default function Page() {
       );
   }, [myGuesses.length, round?.id]);
   const canGuess = !!(
+    match?.mode !== "rps" &&
     match?.mode !== "minesweeper" &&
     connected &&
     round?.phase === "playing" &&
@@ -686,7 +699,7 @@ export default function Page() {
                       <span>01 — PICK A MODE</span>
                     </div>
                     <div className="mode-options">
-                      {(["race", "swap", "minesweeper"] as const).map(
+                      {(["race", "swap", "minesweeper", "rps"] as const).map(
                         (mode) => (
                           <button
                             key={mode}
@@ -699,18 +712,22 @@ export default function Page() {
                             <span className="mode-symbol">
                               {mode === "race"
                                 ? "⚡"
-                                : mode === "minesweeper"
-                                  ? "💣"
-                                  : "⇄"}
+                                : mode === "rps"
+                                  ? "✊ ✋ ✌"
+                                  : mode === "minesweeper"
+                                    ? "💣"
+                                    : "⇄"}
                             </span>
                             <span>
                               <strong>{modeName(mode)}</strong>
                               <small>
                                 {mode === "race"
                                   ? "One word. Two minds. First to solve wins."
-                                  : mode === "minesweeper"
-                                    ? "One shared board. Three lives. Take turns."
-                                    : "Pick a secret word for each other."}
+                                  : mode === "rps"
+                                    ? "Choose, lock, reveal. Outsmart each other."
+                                    : mode === "minesweeper"
+                                      ? "One shared board. Three lives. Take turns."
+                                      : "Pick a secret word for each other."}
                               </small>
                             </span>
                             <span className="radio-dot" />
@@ -765,11 +782,14 @@ export default function Page() {
                           <p>
                             {state.room?.format === "single"
                               ? "A quick little showdown."
-                              : "First to three wins takes the crown."}
+                              : `${formatName(state.room?.format || "series")} wins takes the crown.`}
                           </p>
                         </div>
                         <div className="segmented">
-                          {(["single", "series"] as const).map((format) => (
+                          {(state.room?.mode === "rps"
+                            ? ["single", "series", "first5"]
+                            : ["single", "series"]
+                          ).map((format) => (
                             <button
                               key={format}
                               className={
@@ -779,9 +799,7 @@ export default function Page() {
                                 act("settings", { ...state.room, format })
                               }
                             >
-                              {format === "single"
-                                ? "Single round"
-                                : "First to 3"}
+                              {formatName(format)}
                             </button>
                           ))}
                         </div>
@@ -826,9 +844,7 @@ export default function Page() {
                       {round?.number}
                     </span>
                     <span className="pill">
-                      {match.format === "series"
-                        ? "FIRST TO 3"
-                        : "SINGLE ROUND"}
+                      {formatName(match.format).toUpperCase()}
                     </span>
                   </div>
                   <div className="match-score">
@@ -845,6 +861,38 @@ export default function Page() {
                       <Avatar player={partner} small />
                     </div>
                   </div>
+                  {round?.rps &&
+                    (round.phase === "countdown" ||
+                      round.phase === "playing") && (
+                      <>
+                        <RpsPlay
+                          key={round.id}
+                          data={round.rps}
+                          phase={round.phase}
+                          me={me}
+                          partner={partner}
+                          connected={connected}
+                          pending={pending}
+                          serverNow={state.serverNow}
+                          start={round.start}
+                          deadline={round.deadline}
+                          onLock={(choice, requestId) =>
+                            act("rpsLock", {
+                              matchId: match.id,
+                              roundId: round.id,
+                              choice,
+                              requestId,
+                            })
+                          }
+                        />
+                        <p className="rps-opponent" role="status">
+                          {partner.name}:{" "}
+                          {round.locked.includes(partner.id)
+                            ? "locked"
+                            : "choosing"}
+                        </p>
+                      </>
+                    )}
                   {round?.mines && (
                     <MinesBoard
                       key={round.id}
@@ -927,6 +975,7 @@ export default function Page() {
                     </div>
                   )}
                   {match.mode !== "minesweeper" &&
+                    match.mode !== "rps" &&
                     (round?.phase === "countdown" ||
                       round?.phase === "playing") && (
                       <div className="play-surface">
@@ -1052,7 +1101,17 @@ export default function Page() {
                             ? "No win awarded"
                             : "Match complete"}
                       </p>
-                      {match.mode !== "minesweeper" && (
+                      {round.rps && (
+                        <RpsResult
+                          data={round.rps}
+                          profiles={state.profiles}
+                          me={me.id}
+                          winner={round.winner}
+                          reason={round.reason}
+                          score={match.score}
+                        />
+                      )}
+                      {match.mode !== "minesweeper" && match.mode !== "rps" && (
                         <div className="result-boards">
                           {state.profiles.map((p) => {
                             const guesses = round.guesses[p.id] || [],
@@ -1091,7 +1150,13 @@ export default function Page() {
                         </div>
                       )}
                       <div className="result-actions">
-                        {match.status === "active" ? (
+                        {match.status === "active" && round.rps ? (
+                          <p className="rps-next" role="status">
+                            {!connected || !partner.online
+                              ? "Next round waits until both players reconnect."
+                              : `Next round starts in ${Math.max(0, Math.ceil((round.rps.nextAt - state.serverNow) / 1000))}…`}
+                          </p>
+                        ) : match.status === "active" ? (
                           <button
                             className="primary"
                             disabled={pending || round.ready.includes(me.id)}
@@ -1164,7 +1229,36 @@ export default function Page() {
                   {match ? "A LITTLE REMINDER" : "THE SHORT & SWEET VERSION"}
                 </span>
                 <h2>{modeName(match?.mode || state.room!.mode)}</h2>
-                {(match?.mode || state.room?.mode) === "minesweeper" ? (
+                {(match?.mode || state.room?.mode) === "rps" ? (
+                  <>
+                    <div className="rule">
+                      <span>01</span>
+                      <p>
+                        Rock beats scissors. Scissors beat paper. Paper beats
+                        rock.
+                      </p>
+                    </div>
+                    <div className="rule">
+                      <span>02</span>
+                      <p>
+                        After the countdown, you have ten seconds to lock.
+                        Change your selection until then.
+                      </p>
+                    </div>
+                    <div className="rule">
+                      <span>03</span>
+                      <p>
+                        Both choices reveal together. Only one locked? That
+                        player wins by timeout. Neither locked? The match is
+                        abandoned.
+                      </p>
+                    </div>
+                    <small>
+                      Series continue automatically while both players are
+                      online. Draws award no points.
+                    </small>
+                  </>
+                ) : (match?.mode || state.room?.mode) === "minesweeper" ? (
                   <>
                     <div className="rule">
                       <span>01</span>
@@ -1249,9 +1343,11 @@ export default function Page() {
                       <span className="recent-icon">
                         {m.mode === "race"
                           ? "⚡"
-                          : m.mode === "minesweeper"
-                            ? "💣"
-                            : "⇄"}
+                          : m.mode === "rps"
+                            ? "✌"
+                            : m.mode === "minesweeper"
+                              ? "💣"
+                              : "⇄"}
                       </span>
                       <span>
                         <strong>
@@ -1295,10 +1391,7 @@ export default function Page() {
                   ← All matches
                 </button>
                 <h2>
-                  {modeName(detail.mode)} ·{" "}
-                  {detail.format === "single"
-                    ? "Single round"
-                    : "First to three"}
+                  {modeName(detail.mode)} · {formatName(detail.format)}
                 </h2>
                 <p className="muted">
                   {new Date(detail.start).toLocaleString()} ·{" "}
@@ -1319,7 +1412,16 @@ export default function Page() {
                       <h3>Round {r.number}</h3>
                       <span>{labelReason(r.reason)}</span>
                     </div>
-                    {r.mines ? (
+                    {r.rps ? (
+                      <RpsResult
+                        data={r.rps}
+                        profiles={state.profiles}
+                        me={me.id}
+                        winner={r.winner}
+                        reason={r.reason}
+                        score={r.rps.scoreAfter || detail.score}
+                      />
+                    ) : r.mines ? (
                       <MinesHistory
                         data={r.mines}
                         profiles={state.profiles}
@@ -1367,17 +1469,17 @@ export default function Page() {
                       <span className="recent-icon">
                         {m.mode === "race"
                           ? "⚡"
-                          : m.mode === "minesweeper"
-                            ? "💣"
-                            : "⇄"}
+                          : m.mode === "rps"
+                            ? "✌"
+                            : m.mode === "minesweeper"
+                              ? "💣"
+                              : "⇄"}
                       </span>
                       <span>
                         <strong>{modeName(m.mode)}</strong>
                         <small>
                           {new Date(m.start).toLocaleString()} ·{" "}
-                          {m.format === "single"
-                            ? "Single round"
-                            : "First to three"}
+                          {formatName(m.format)}
                         </small>
                       </span>
                       <span className="history-result">
@@ -1432,7 +1534,7 @@ export default function Page() {
             <div className="section-title">
               <h2>Head to head</h2>
               <div className="segmented">
-                {["all", "race", "swap", "minesweeper"].map((mode) => (
+                {["all", "race", "swap", "minesweeper", "rps"].map((mode) => (
                   <button
                     key={mode}
                     className={statsMode === mode ? "chosen" : ""}
@@ -1446,7 +1548,9 @@ export default function Page() {
             <div className="stats-grid">
               {(statsMode === "all"
                 ? state.stats
-                : state.modeStats[statsMode as "race" | "swap" | "minesweeper"]
+                : state.modeStats[
+                    statsMode as "race" | "swap" | "minesweeper" | "rps"
+                  ]
               ).map((s) => {
                 const p = state.profiles.find((p) => p.id === s.id)!;
                 return (
@@ -1466,7 +1570,27 @@ export default function Page() {
                           "Current / best win streak",
                           `${s.currentStreak} / ${s.bestStreak}`,
                         ],
-                        ...(statsMode === "minesweeper"
+                        ...(statsMode === "rps"
+                          ? [
+                              [
+                                "Round wins / losses / draws",
+                                `${state.rpsStats[s.id - 1].wins} / ${state.rpsStats[s.id - 1].losses} / ${state.rpsStats[s.id - 1].draws}`,
+                              ],
+                              [
+                                "Rock choices",
+                                state.rpsStats[s.id - 1].choices.rock,
+                              ],
+                              [
+                                "Paper choices",
+                                state.rpsStats[s.id - 1].choices.paper,
+                              ],
+                              [
+                                "Scissors choices",
+                                state.rpsStats[s.id - 1].choices.scissors,
+                              ],
+                            ]
+                          : []),
+                        ...(["minesweeper", "rps"].includes(statsMode)
                           ? []
                           : [
                               [
@@ -1499,7 +1623,8 @@ export default function Page() {
               Win rate includes draws. Forfeits count as match wins and losses.
               Abandoned matches and rounds are excluded. Solve averages use
               correctly solved rounds only. Word-solving metrics exclude
-              Minesweeper.
+              Minesweeper and Rock Paper Scissors. Choice counts include only
+              resolved Rock Paper Scissors rounds.
             </p>
           </section>
         )}
